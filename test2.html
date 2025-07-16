@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Min-Max Alpha-Beta Pruning Simulation</title>
+    <style>
+        /* CSS (style.css content) */
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+            margin: 20px;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        #simulation-container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 90%;
+            max-width: 1200px;
+            position: relative; /* Needed for SVG absolute positioning */
+        }
+
+        #tree {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+            width: 100%;
+            padding-top: 50px; /* Give space for A's value + its line */
+            padding-bottom: 50px; /* Give space for leaf values + their lines */
+        }
+
+        .level {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin-bottom: 70px; /* Increased space between levels for lines and values */
+            position: relative;
+            z-index: 1; /* Nodes above lines */
+        }
+
+        .node {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            position: relative;
+            font-size: 1.2em;
+            transition: all 0.3s ease-in-out; /* For smooth transitions */
+            flex-shrink: 0; /* Prevent nodes from shrinking */
+        }
+
+        .max-node {
+            background-color: #4CAF50; /* Green for MAX nodes */
+        }
+
+        .min-node {
+            background-color: #2196F3; /* Blue for MIN nodes */
+        }
+
+        .leaf-node {
+            background-color: #607D8B; /* Grey for leaf nodes */
+            border-radius: 8px; /* Square/rounded square for leaves */
+            width: 50px;
+            height: 50px;
+            color: white;
+        }
+
+        /* Specific styling for pruned nodes from the image */
+        .pruned {
+            background-color: #f44336 !important; /* Red for pruned nodes */
+            opacity: 0.6;
+            text-decoration: line-through;
+        }
+
+        /* Styling for selected path (like the green path in your image) */
+        .active-path {
+            background-color: #8BC34A; /* Lighter green */
+            border: 2px solid #4CAF50;
+        }
+
+        /* Styling for current node being processed */
+        .current-node {
+            border: 3px solid #FFC107; /* Orange highlight */
+            box-shadow: 0 0 10px #FFC107;
+        }
+
+        /* Value overlay for nodes */
+        .node::before {
+            content: attr(data-value); /* Placeholder for current alpha/beta/node value */
+            position: absolute;
+            top: -25px; /* Position above the node */
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.9em;
+            color: #555;
+            background-color: #ffeb3b; /* Yellow background for values */
+            padding: 2px 5px;
+            border-radius: 3px;
+            display: none; /* Hide by default, show during simulation */
+            white-space: nowrap; /* Prevent line breaks */
+            z-index: 10; /* Ensure values are above lines and other elements */
+        }
+
+        .node.show-value::before {
+            display: block;
+        }
+
+        /* SVG for drawing lines */
+        #tree-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allow clicks to pass through to underlying elements */
+            z-index: 0; /* Keep lines behind nodes */
+        }
+
+        .tree-line {
+            stroke: #ccc;
+            stroke-width: 2;
+            transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, stroke-dasharray 0.3s ease;
+        }
+
+        .active-line {
+            stroke: #4CAF50; /* Green for active path lines */
+            stroke-width: 3;
+        }
+
+        .pruned-line {
+            stroke: #f44336; /* Red for pruned lines */
+            stroke-dasharray: 5 5; /* Dashed line for pruned */
+            opacity: 0.5;
+            transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, stroke-dasharray 0.3s ease;
+        }
+
+        #controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            z-index: 2; /* Controls above everything */
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #simulation-log {
+            margin-top: 30px;
+            width: 80%;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+
+        #log-list {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #log-list li {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-bottom: 1px dashed #eee;
+        }
+    </style>
+</head>
+<body>
+    <h1>Min-Max Tree with Alpha-Beta Pruning Simulation</h1>
+
+    <div id="simulation-container">
+        <svg id="tree-lines">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                    refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#ccc" />
+                </marker>
+                 <marker id="arrowhead-active" markerWidth="10" markerHeight="7"
+                    refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#4CAF50" />
+                </marker>
+                 <marker id="arrowhead-pruned" markerWidth="10" markerHeight="7"
+                    refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#f44336" />
+                </marker>
+            </defs>
+        </svg>
+
+        <div id="tree">
+            <div class="level">
+                <div class="node max-node" id="nodeA">A</div>
+            </div>
+            <div class="level">
+                <div class="node min-node" id="nodeB">B</div>
+                <div class="node min-node" id="nodeC">C</div>
+            </div>
+            <div class="level">
+                <div class="node max-node" id="nodeD">D</div>
+                <div class="node max-node" id="nodeE">E</div>
+                <div class="node max-node" id="nodeF">F</div>
+                <div class="node max-node" id="nodeG">G</div>
+            </div>
+            <div class="level leaf-level">
+                <div class="node leaf-node" id="leafD1">3</div>
+                <div class="node leaf-node" id="leafD2">5</div>
+                <div class="node leaf-node" id="leafE1">6</div>
+                <div class="node leaf-node" id="leafE2">3</div>
+                <div class="node leaf-node" id="leafF1">1</div>
+                <div class="node leaf-node" id="leafF2">2</div>
+                <div class="node leaf-node" id="leafG1">8</div>
+                <div class="node leaf-node" id="leafG2">-4</div>
+            </div>
+        </div>
+
+        <div id="controls">
+            <button id="startButton">Start Simulation</button>
+            <button id="nextStepButton" disabled>Next Step</button>
+            <button id="runAllButton" disabled>Run All</button>
+            <button id="slowPlayButton" disabled>Slow Play</button>
+            <button id="stopButton" disabled>Stop</button>
+            <button id="resetButton" disabled>Reset</button>
+        </div>
+
+        <div id="simulation-log">
+            <h2>Simulation Log</h2>
+            <ul id="log-list">
+                </ul>
+        </div>
+    </div>
+
+    <script>
+        // JavaScript content
+        document.addEventListener('DOMContentLoaded', () => {
+            const startButton = document.getElementById('startButton');
+            const nextStepButton = document.getElementById('nextStepButton');
+            const runAllButton = document.getElementById('runAllButton');
+            const slowPlayButton = document.getElementById('slowPlayButton'); // New button reference
+            const stopButton = document.getElementById('stopButton');       // New button reference
+            const resetButton = document.getElementById('resetButton');
+            const logList = document.getElementById('log-list');
+            const svg = document.getElementById('tree-lines');
+
+            // Store references to drawn lines for easy manipulation
+            const lineElements = {};
+
+            // Global variable for animation interval
+            let animationIntervalId = null;
+            const animationSpeed = 800; // milliseconds per step for slow play
+
+            // Define the tree structure and leaf values based on your image
+            const treeData = {
+                id: 'A', type: 'MAX',
+                children: [
+                    {
+                        id: 'B', type: 'MIN',
+                        children: [
+                            {
+                                id: 'D', type: 'MAX',
+                                children: [
+                                    { id: 'D1', domId: 'leafD1', value: 3, type: 'LEAF' },
+                                    { id: 'D2', domId: 'leafD2', value: 5, type: 'LEAF' }
+                                ]
+                            },
+                            {
+                                id: 'E', type: 'MAX',
+                                children: [
+                                    { id: 'E1', domId: 'leafE1', value: 6, type: 'LEAF' },
+                                    { id: 'E2', domId: 'leafE2', value: 3, type: 'LEAF' }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        id: 'C', type: 'MIN',
+                        children: [
+                            {
+                                id: 'F', type: 'MAX',
+                                children: [
+                                    { id: 'F1', domId: 'leafF1', value: 1, type: 'LEAF' },
+                                    { id: 'F2', domId: 'leafF2', value: 2, type: 'LEAF' }
+                                ]
+                            },
+                            {
+                                id: 'G', type: 'MAX',
+                                children: [
+                                    { id: 'G1', domId: 'leafG1', value: 8, type: 'LEAF' },
+                                    { id: 'G2', domId: 'leafG2', value: '5', type: 'LEAF' }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            };
+
+            let simulationSteps = [];
+            let currentStepIndex = 0;
+
+            function log(message) {
+                const listItem = document.createElement('li');
+                listItem.textContent = message;
+                logList.appendChild(listItem);
+                logList.scrollTop = logList.scrollHeight; // Auto-scroll to bottom
+            }
+
+            function updateNodeValue(nodeId, value, alpha = null, beta = null) {
+                // Use domId for leaf nodes
+                const domNodeId = nodeId.startsWith('leaf') ? nodeId : 'node' + nodeId;
+                const nodeElement = document.getElementById(domNodeId);
+                if (nodeElement) {
+                    let valString = `Val: ${value === -Infinity ? '-∞' : (value === Infinity ? '∞' : value)}`;
+                    if (alpha !== null) valString += ` | α: ${alpha === -Infinity ? '-∞' : alpha}`;
+                    if (beta !== null) valString += ` | β: ${beta === Infinity ? '∞' : beta}`;
+                    nodeElement.setAttribute('data-value', valString);
+                    nodeElement.classList.add('show-value');
+                }
+            }
+
+            function markPruned(nodeId) {
+                const domNodeId = nodeId.startsWith('leaf') ? nodeId : 'node' + nodeId;
+                const nodeElement = document.getElementById(domNodeId);
+                if (nodeElement) {
+                    nodeElement.classList.add('pruned');
+                }
+            }
+
+            function highlightNode(nodeId, remove = false) {
+                const domNodeId = nodeId.startsWith('leaf') ? nodeId : 'node' + nodeId;
+                const nodeElement = document.getElementById(domNodeId);
+                if (nodeElement) {
+                    if (remove) {
+                        nodeElement.classList.remove('current-node');
+                    } else {
+                        nodeElement.classList.add('current-node');
+                    }
+                }
+            }
+
+            function updateLineState(lineId, active = false, pruned = false) {
+                const line = lineElements[lineId];
+                if (line) {
+                    line.classList.remove('active-line', 'pruned-line');
+                    if (active) {
+                        line.classList.add('active-line');
+                        line.setAttribute('marker-end', 'url(#arrowhead-active)');
+                    } else if (pruned) {
+                        line.classList.add('pruned-line');
+                        line.setAttribute('marker-end', 'url(#arrowhead-pruned)');
+                    } else {
+                        line.setAttribute('marker-end', 'url(#arrowhead)');
+                    }
+                }
+            }
+
+            // Function to draw all tree lines using SVG
+            function drawTreeLines() {
+                // Clear existing lines
+                svg.innerHTML = `
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                            refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#ccc" />
+                        </marker>
+                         <marker id="arrowhead-active" markerWidth="10" markerHeight="7"
+                            refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#4CAF50" />
+                        </marker>
+                         <marker id="arrowhead-pruned" markerWidth="10" markerHeight="7"
+                            refX="0" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#f44336" />
+                        </marker>
+                    </defs>
+                `; // Re-add markers
+                Object.keys(lineElements).forEach(key => delete lineElements[key]); // Clear references
+
+                const containerRect = svg.getBoundingClientRect(); // Get SVG's position for relative coordinates
+
+                function getNodeDomId(nodeObj) {
+                    return nodeObj.type === 'LEAF' ? nodeObj.domId : 'node' + nodeObj.id;
+                }
+
+                function traverseAndDraw(node) {
+                    const parentElement = document.getElementById(getNodeDomId(node));
+                    if (!parentElement) {
+                        console.error(`Parent DOM element not found for node: ${getNodeDomId(node)}`);
+                        return;
+                    }
+
+                    node.children && node.children.forEach(child => {
+                        const childElement = document.getElementById(getNodeDomId(child));
+                        if (!childElement) {
+                            console.error(`Child DOM element not found for node: ${getNodeDomId(child)} (child of ${getNodeDomId(node)})`);
+                            return;
+                        }
+
+                        const pRect = parentElement.getBoundingClientRect();
+                        const cRect = childElement.getBoundingClientRect();
+
+                        // Calculate points relative to the SVG container
+                        const pX = pRect.left + pRect.width / 2 - containerRect.left;
+                        const pY = pRect.bottom - containerRect.top; // Bottom of parent
+
+                        const cX = cRect.left + cRect.width / 2 - containerRect.left;
+                        const cY = cRect.top - containerRect.top; // Top of child
+
+                        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        line.setAttribute('x1', pX);
+                        line.setAttribute('y1', pY);
+                        line.setAttribute('x2', cX);
+                        line.setAttribute('y2', cY);
+                        line.setAttribute('class', 'tree-line');
+                        line.setAttribute('marker-end', 'url(#arrowhead)'); // Default arrowhead
+
+                        const lineId = `${node.id}_${child.id}`;
+                        line.setAttribute('id', `line-${lineId}`); // Assign ID for easy lookup
+                        lineElements[lineId] = line; // Store reference
+
+                        svg.appendChild(line);
+                        // console.log(`Drawn line: ${lineId} from (${pX},${pY}) to (${cX},${cY})`); // Log the drawn line for debugging
+
+                        traverseAndDraw(child); // Recurse for children
+                    });
+                }
+                traverseAndDraw(treeData);
+                console.log(`Total lines drawn: ${Object.keys(lineElements).length}`);
+            }
+
+            function resetSimulation() {
+                stopSlowPlay(); // Stop any ongoing animation
+                logList.innerHTML = '';
+                currentStepIndex = 0;
+                simulationSteps = [];
+
+                // Reset all node styles
+                document.querySelectorAll('.node').forEach(node => {
+                    node.classList.remove('pruned', 'active-path', 'current-node', 'show-value');
+                    node.removeAttribute('data-value');
+                });
+
+                // Redraw lines to reset their states (important to do AFTER node styles are reset and rendered)
+                // Use a small timeout to ensure DOM has settled for accurate getBoundingClientRect
+                setTimeout(drawTreeLines, 50);
+
+                startButton.disabled = false;
+                nextStepButton.disabled = true;
+                runAllButton.disabled = true;
+                slowPlayButton.disabled = true; // Disable slowPlay on reset
+                stopButton.disabled = true;     // Disable stop on reset
+                resetButton.disabled = true;
+            }
+
+            // --- Alpha-Beta Pruning Logic (Conceptual for step-by-step recording) ---
+            // This function will generate all simulation steps
+            function simulateAlphaBeta() {
+                simulationSteps = []; // Clear previous steps
+                let alpha = -Infinity;
+                let beta = Infinity;
+                let valA = -Infinity;
+
+                // Initial state
+                simulationSteps.push({ action: 'log', message: `Starting Alpha-Beta Pruning at root A. Initial alpha=${alpha === -Infinity ? '-∞' : alpha}, beta=${beta === Infinity ? '∞' : beta}.` });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: false });
+                simulationSteps.push({ action: 'updateValue', node: 'A', value: '?', alpha: alpha, beta: beta });
+
+                // Simulate recursive calls and state changes
+                // Node A (MAX player)
+                // Evaluate B (MIN player)
+                simulationSteps.push({ action: 'log', message: `Node A (MAX): Descending to child B (MIN player).` });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'B', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'A_B', active: true }); // Highlight line A_B
+                simulationSteps.push({ action: 'updateValue', node: 'B', value: '?', alpha: alpha, beta: beta });
+
+                let valB = Infinity;
+                // Evaluate D (MAX player)
+                simulationSteps.push({ action: 'log', message: `Node B (MIN): Descending to child D (MAX player).` });
+                simulationSteps.push({ action: 'highlight', node: 'B', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'D', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'B_D', active: true }); // Highlight line B_D
+                simulationSteps.push({ action: 'updateValue', node: 'D', value: '?', alpha: alpha, beta: beta });
+
+                let valD = -Infinity;
+                // Evaluate leafD1 (value 3)
+                simulationSteps.push({ action: 'log', message: `Node D (MAX): Evaluating leaf node 3.` });
+                simulationSteps.push({ action: 'highlight', node: 'D', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'leafD1', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'D_D1', active: true }); // Highlight line D_D1
+                simulationSteps.push({ action: 'updateValue', node: 'leafD1', value: 3 });
+                valD = Math.max(valD, 3); // valD = 3
+                alpha = Math.max(alpha, valD); // alpha = 3
+                simulationSteps.push({ action: 'log', message: `Node D updated to ${valD}. Alpha updated to ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'D', value: valD, alpha: alpha, beta: beta });
+
+                // Evaluate leafD2 (value 5)
+                simulationSteps.push({ action: 'log', message: `Node D (MAX): Evaluating leaf node 5.` });
+                simulationSteps.push({ action: 'highlight', node: 'leafD1', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'leafD2', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'D_D1', active: false }); // Deactivate previous leaf line
+                simulationSteps.push({ action: 'line', lineId: 'D_D2', active: true }); // Activate new leaf line
+                simulationSteps.push({ action: 'updateValue', node: 'leafD2', value: 5 });
+                valD = Math.max(valD, 5); // valD = 5
+                alpha = Math.max(alpha, valD); // alpha = 5
+                simulationSteps.push({ action: 'log', message: `Node D updated to ${valD}. Alpha updated to ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'D', value: valD, alpha: alpha, beta: beta });
+
+                // D is done. Propagate value 5 up to B.
+                simulationSteps.push({ action: 'log', message: `Node D (MAX) returns ${valD} to Node B.` });
+                simulationSteps.push({ action: 'highlight', node: 'leafD2', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'D', remove: true }); // D is done
+                simulationSteps.push({ action: 'highlight', node: 'B', remove: false }); // Back to B
+                simulationSteps.push({ action: 'line', lineId: 'D_D2', active: false }); // Deactivate leaf line
+                valB = Math.min(valB, valD); // valB = min(Infinity, 5) = 5
+                beta = Math.min(beta, valB); // beta = min(Infinity, 5) = 5
+                simulationSteps.push({ action: 'log', message: `Node B updated to ${valB}. Beta updated to ${beta}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'B', value: valB, alpha: alpha, beta: beta });
+
+                // Check for pruning at B after D: alpha (5) >= beta (5) -> TRUE
+                if (alpha >= beta) {
+                    simulationSteps.push({ action: 'log', message: `Pruning at Node B: alpha (${alpha}) >= beta (${beta}). Node E and its children will be pruned.` });
+                    simulationSteps.push({ action: 'prune', node: 'E' });
+                    simulationSteps.push({ action: 'prune', node: 'leafE1' });
+                    simulationSteps.push({ action: 'prune', node: 'leafE2' });
+                    simulationSteps.push({ action: 'line', lineId: 'B_E', pruned: true }); // Prune line B_E
+                    simulationSteps.push({ action: 'line', lineId: 'E_E1', pruned: true }); // Prune child lines
+                    simulationSteps.push({ action: 'line', lineId: 'E_E2', pruned: true });
+                }
+
+                // B is done. Propagate value 5 up to A.
+                simulationSteps.push({ action: 'log', message: `Node B (MIN) returns ${valB} to Node A.` });
+                simulationSteps.push({ action: 'highlight', node: 'B', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: false }); // Back to A
+                simulationSteps.push({ action: 'line', lineId: 'B_D', active: false }); // Deactivate path to D
+                simulationSteps.push({ action: 'line', lineId: 'A_B', active: false }); // Deactivate path to B
+                valA = Math.max(valA, valB); // valA = max(-Infinity, 5) = 5
+                alpha = Math.max(alpha, valA); // alpha = 5
+                simulationSteps.push({ action: 'log', message: `Node A updated to ${valA}. Alpha updated to ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'A', value: valA, alpha: alpha, beta: beta });
+
+
+                // Evaluate C (MIN player)
+                simulationSteps.push({ action: 'log', message: `Node A (MAX): Descending to child C (MIN player).` });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'C', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'A_C', active: true }); // Highlight line A_C
+                simulationSteps.push({ action: 'updateValue', node: 'C', value: '?', alpha: alpha, beta: beta });
+
+                let valC = Infinity;
+                // Evaluate F (MAX player)
+                simulationSteps.push({ action: 'log', message: `Node C (MIN): Descending to child F (MAX player).` });
+                simulationSteps.push({ action: 'highlight', node: 'C', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'F', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'C_F', active: true }); // Highlight line C_F
+                simulationSteps.push({ action: 'updateValue', node: 'F', value: '?', alpha: alpha, beta: beta });
+
+                let valF = -Infinity;
+                // Evaluate leafF1 (value 1)
+                simulationSteps.push({ action: 'log', message: `Node F (MAX): Evaluating leaf node 1.` });
+                simulationSteps.push({ action: 'highlight', node: 'F', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'leafF1', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'F_F1', active: true }); // Highlight line F_F1
+                simulationSteps.push({ action: 'updateValue', node: 'leafF1', value: 1 });
+                valF = Math.max(valF, 1); // valF = 1
+                // alpha remains 5 (since max(5,1)=5)
+                simulationSteps.push({ action: 'log', message: `Node F updated to ${valF}. Alpha remains ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'F', value: valF, alpha: alpha, beta: beta });
+
+                // Evaluate leafF2 (value 2)
+                simulationSteps.push({ action: 'log', message: `Node F (MAX): Evaluating leaf node 2.` });
+                simulationSteps.push({ action: 'highlight', node: 'leafF1', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'leafF2', remove: false });
+                simulationSteps.push({ action: 'line', lineId: 'F_F1', active: false }); // Deactivate previous leaf line
+                simulationSteps.push({ action: 'line', lineId: 'F_F2', active: true }); // Activate new leaf line
+                simulationSteps.push({ action: 'updateValue', node: 'leafF2', value: 2 });
+                valF = Math.max(valF, 2); // valF = 2
+                // alpha remains 5 (since max(5,2)=5)
+                simulationSteps.push({ action: 'log', message: `Node F updated to ${valF}. Alpha remains ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'F', value: valF, alpha: alpha, beta: beta });
+
+                // F is done. Propagate value 2 up to C.
+                simulationSteps.push({ action: 'log', message: `Node F (MAX) returns ${valF} to Node C.` });
+                simulationSteps.push({ action: 'highlight', node: 'leafF2', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'F', remove: true }); // F is done
+                simulationSteps.push({ action: 'highlight', node: 'C', remove: false }); // Back to C
+                simulationSteps.push({ action: 'line', lineId: 'F_F2', active: false }); // Deactivate leaf line
+                simulationSteps.push({ action: 'line', lineId: 'C_F', active: false }); // Deactivate path to F
+                valC = Math.min(valC, valF); // valC = min(Infinity, 2) = 2
+                beta = Math.min(beta, valC); // beta = min(5, 2) = 2
+                simulationSteps.push({ action: 'log', message: `Node C updated to ${valC}. Beta updated to ${beta}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'C', value: valC, alpha: alpha, beta: beta });
+
+                // Check for pruning at C after F: alpha (5) >= beta (2) -> TRUE
+                if (alpha >= beta) {
+                    simulationSteps.push({ action: 'log', message: `Pruning at Node C: alpha (${alpha}) >= beta (${beta}). Node G and its children will be pruned.` });
+                    simulationSteps.push({ action: 'prune', node: 'G' });
+                    simulationSteps.push({ action: 'prune', node: 'leafG1' });
+                    simulationSteps.push({ action: 'prune', node: 'leafG2' });
+                    simulationSteps.push({ action: 'line', lineId: 'C_G', pruned: true }); // Prune line C_G
+                    simulationSteps.push({ action: 'line', lineId: 'G_G1', pruned: true }); // Prune child lines
+                    simulationSteps.push({ action: 'line', lineId: 'G_G2', pruned: true });
+                }
+
+                // C is done. Propagate value 2 up to A.
+                simulationSteps.push({ action: 'log', message: `Node C (MIN) returns ${valC} to Node A.` });
+                simulationSteps.push({ action: 'highlight', node: 'C', remove: true });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: false }); // Back to A
+                simulationSteps.push({ action: 'line', lineId: 'A_C', active: false }); // Deactivate path to C
+                valA = Math.max(valA, valC); // valA = max(5, 2) = 5
+                alpha = Math.max(alpha, valA); // alpha remains 5
+                simulationSteps.push({ action: 'log', message: `Node A updated to ${valA}. Alpha remains ${alpha}.` });
+                simulationSteps.push({ action: 'updateValue', node: 'A', value: valA, alpha: alpha, beta: beta });
+
+                // Final step
+                simulationSteps.push({ action: 'log', message: `Simulation complete. Optimal value for root A is ${valA}.` });
+                simulationSteps.push({ action: 'highlight', node: 'A', remove: true }); // Remove final highlight
+                simulationSteps.push({ action: 'enableReset' });
+
+                startButton.disabled = true;
+                nextStepButton.disabled = false;
+                runAllButton.disabled = false;
+                slowPlayButton.disabled = false; // Enable slowPlay when simulation is ready to be stepped through
+                resetButton.disabled = false;
+                executeNextStep(); // Execute the first step immediately
+            }
+
+            function executeNextStep() {
+                if (currentStepIndex < simulationSteps.length) {
+                    const step = simulationSteps[currentStepIndex];
+                    switch (step.action) {
+                        case 'log':
+                            log(step.message);
+                            break;
+                        case 'highlight':
+                            // Clear previous highlight on any node before applying new one
+                            document.querySelectorAll('.current-node').forEach(node => node.classList.remove('current-node'));
+                            if (!step.remove) {
+                                highlightNode(step.node);
+                            }
+                            break;
+                        case 'updateValue':
+                            updateNodeValue(step.node, step.value, step.alpha, step.beta);
+                            break;
+                        case 'prune':
+                            markPruned(step.node);
+                            break;
+                        case 'line':
+                            updateLineState(step.lineId, step.active, step.pruned);
+                            break;
+                        case 'enableReset':
+                            resetButton.disabled = false;
+                            nextStepButton.disabled = true;
+                            runAllButton.disabled = true;
+                            slowPlayButton.disabled = true; // Disable slow play at end
+                            stopButton.disabled = true;     // Disable stop at end
+                            stopSlowPlay(); // Ensure interval is cleared if it was running
+                            break;
+                    }
+                    currentStepIndex++;
+                    if (currentStepIndex >= simulationSteps.length) {
+                        nextStepButton.disabled = true;
+                        runAllButton.disabled = true;
+                        slowPlayButton.disabled = true;
+                        stopButton.disabled = true;
+                        log('End of simulation steps.');
+                        stopSlowPlay(); // Just in case, ensure interval is cleared if it was running
+                    }
+                }
+            }
+
+            function runAllSteps() {
+                stopSlowPlay(); // Stop slow play if it's running
+                startButton.disabled = true;
+                nextStepButton.disabled = true;
+                runAllButton.disabled = true; // Disable itself
+                slowPlayButton.disabled = true; // Also disable slow play
+                stopButton.disabled = true;     // Also disable stop
+
+                while (currentStepIndex < simulationSteps.length) {
+                    executeNextStep();
+                }
+                // The last executeNextStep will handle enabling resetButton and logging "End of simulation steps."
+            }
+
+            function startSlowPlay() {
+                stopSlowPlay(); // Ensure any previous animation is stopped
+                startButton.disabled = true;
+                nextStepButton.disabled = true;
+                runAllButton.disabled = true;
+                slowPlayButton.disabled = true;
+                stopButton.disabled = false;
+
+                animationIntervalId = setInterval(() => {
+                    if (currentStepIndex < simulationSteps.length) {
+                        executeNextStep();
+                    } else {
+                        stopSlowPlay(); // All steps played
+                    }
+                }, animationSpeed);
+            }
+
+            function stopSlowPlay() {
+                if (animationIntervalId !== null) {
+                    clearInterval(animationIntervalId);
+                    animationIntervalId = null;
+                }
+                // Update button states based on whether simulation is complete
+                if (currentStepIndex < simulationSteps.length) {
+                    nextStepButton.disabled = false;
+                    runAllButton.disabled = false;
+                    slowPlayButton.disabled = false;
+                } else {
+                    // Simulation is complete
+                    nextStepButton.disabled = true;
+                    runAllButton.disabled = true;
+                    slowPlayButton.disabled = true;
+                }
+                startButton.disabled = true; // Start button remains disabled after initial start
+                stopButton.disabled = true;
+            }
+
+
+            startButton.addEventListener('click', () => {
+                resetSimulation(); // Ensure a clean start
+                simulateAlphaBeta(); // Populate simulationSteps and start
+            });
+
+            nextStepButton.addEventListener('click', executeNextStep);
+            runAllButton.addEventListener('click', runAllSteps);
+            slowPlayButton.addEventListener('click', startSlowPlay); // Event listener for slow play
+            stopButton.addEventListener('click', stopSlowPlay);     // Event listener for stop
+            resetButton.addEventListener('click', resetSimulation);
+
+            // Initial drawing of lines on page load
+            window.addEventListener('load', resetSimulation);
+        });
+    </script>
+</body>
+</html>
